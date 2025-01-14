@@ -1,0 +1,16 @@
+repository_type: pipeline
+
+nf_core_version: 3.1.1
+
+lint: {}
+
+template:
+  org: nf-core
+  name: mphivseq
+  description: Minority variant mutation detection for HIV sequencing data using mpileup
+    approach.
+  author: Magdalena Dabrowska
+  version: 1.0.0dev
+  force: true
+  outdir: .
+  is_nfcore: true
