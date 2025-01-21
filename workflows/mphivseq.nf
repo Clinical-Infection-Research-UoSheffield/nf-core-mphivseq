@@ -5,6 +5,8 @@
 */
 include { FASTQC                 } from '../modules/nf-core/fastqc/main'
 include { MULTIQC                } from '../modules/nf-core/multiqc/main'
+include { BCFTOOLS_MPILEUP       } from '../modules/nf-core/bcftools/mpileup/main'
+include { MINIMAP2_ALIGN         } from '../modules/nf-core/minimap2/align/main'
 include { paramsSummaryMap       } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc   } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { softwareVersionsToYAML } from '../subworkflows/nf-core/utils_nfcore_pipeline'
@@ -43,6 +45,18 @@ workflow MPHIVSEQ {
             sort: true,
             newLine: true
         ).set { ch_collated_versions }
+
+    //
+    // MODULE: Align with Minimap2
+    //
+    MINIMAP2_ALIGN (
+        ch_samplesheet,
+        [[ id:'ref'], params.reference],
+        true,
+        '',
+        false,
+        false
+    )
 
 
     //
