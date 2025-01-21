@@ -7,6 +7,8 @@ include { FASTQC                 } from '../modules/nf-core/fastqc/main'
 include { MULTIQC                } from '../modules/nf-core/multiqc/main'
 include { BCFTOOLS_MPILEUP       } from '../modules/nf-core/bcftools/mpileup/main'
 include { MINIMAP2_ALIGN         } from '../modules/nf-core/minimap2/align/main'
+include { SAMTOOLS_INDEX         } from '../modules/nf-core/samtools/index/main'
+include { SAMTOOLS_VIEW          } from '../modules/nf-core/samtools/view/main'
 include { paramsSummaryMap       } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc   } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { softwareVersionsToYAML } from '../subworkflows/nf-core/utils_nfcore_pipeline'
@@ -57,6 +59,18 @@ workflow MPHIVSEQ {
         false,
         false
     )
+
+    //Add empty index file into the MINIMAP2_ALIGN.out.bam tuple to create tuple val(meta), path(input), path(index)
+    ch_aligned = MINIMAP2_ALIGN.out.bam.map { meta, bam -> 
+        [ meta, bam, [] ] // Use an empty list for the optional index
+    }
+
+    SAMTOOLS_VIEW(
+        ch_aligned, // Channel for meta and BAM
+        [[ id: 'ref' ], []], // Meta2 and reference (use an empty list if not needed)
+        [] // QName (use an empty list if not needed)
+    )
+
 
 
     //

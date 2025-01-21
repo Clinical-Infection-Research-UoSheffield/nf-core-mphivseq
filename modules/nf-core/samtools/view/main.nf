@@ -29,7 +29,7 @@ process SAMTOOLS_VIEW {
     script:
     def args = task.ext.args ?: ''
     def args2 = task.ext.args2 ?: ''
-    prefix = task.ext.prefix ?: "${meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}_filtered"
     def reference = fasta ? "--reference ${fasta}" : ""
     file_type = args.contains("--output-fmt sam") ? "sam" :
                 args.contains("--output-fmt bam") ? "bam" :
