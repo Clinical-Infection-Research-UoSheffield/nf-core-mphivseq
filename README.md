@@ -8,7 +8,6 @@
 [![nf-test](https://img.shields.io/badge/unit_tests-nf--test-337ab7.svg)](https://www.nf-test.com)
 
 [![Nextflow](https://img.shields.io/badge/nextflow%20DSL2-%E2%89%A524.04.2-23aa62.svg)](https://www.nextflow.io/)
-[![run with conda](http://img.shields.io/badge/run%20with-conda-3EB049?labelColor=000000&logo=anaconda)](https://docs.conda.io/en/latest/)
 [![run with docker](https://img.shields.io/badge/run%20with-docker-0db7ed?labelColor=000000&logo=docker)](https://www.docker.com/)
 [![run with singularity](https://img.shields.io/badge/run%20with-singularity-1d355c.svg?labelColor=000000)](https://sylabs.io/docs/)
 [![Launch on Seqera Platform](https://img.shields.io/badge/Launch%20%F0%9F%9A%80-Seqera%20Platform-%234256e7)](https://cloud.seqera.io/launch?pipeline=https://github.com/nf-core/mphivseq)
@@ -17,25 +16,91 @@
 
 ## Introduction
 
-**nf-core/mphivseq** is a bioinformatics pipeline that ...
+**nf-core/mphivseq** is a bioinformatics pipeline designed to analyze HIV sequencing data for the presence of majority and minority variants of mutations as defined by the HIVdb Stanford database. The workflow includes steps for quality control, alignment, variant calling, and report generation using various bioinformatics tools, culminating in a comprehensive html report.
 
-<!-- TODO nf-core:
-   Complete this sentence with a 2-3 sentence summary of what types of data the pipeline ingests, a brief overview of the
-   major pipeline sections and the types of output it produces. You're giving an overview to someone new
-   to nf-core here, in 15-20 seconds. For an example, see https://github.com/nf-core/rnaseq/blob/master/README.md#introduction
--->
+The mpileup HIV pipeline processes FASTQ files from sequencing to identify mutations in the PR, RT, and INT proteins using the Stanford consensus sequence for subtype B (download link: [![HXB2 x Consensus B](https://cms.hivdb.org/prod/downloads/HXB2_x_ConsensusB.fas)]) (source: [![Stanford HIVDB release notes](https://hivdb.stanford.edu/page/release-notes/#appendix.1.consensus.b.sequences)]). During processing, any variant bases with a frequency below 10% are discarded. The remaining mutations are then assembled into artificial alleles. The 1st allele is created by taking the most common base at each position, while the 2nd allele is built from the second most common base, with gaps filled by the reference sequence where no mutations are present. This process is repeated for the 3rd and 4th most common bases, resulting in four artificial alleles with varying mutation frequencies. These sequences are queried against Stanford HIVDB to receive information about drug susceptibility and subtype annotation. All the information is put into html reports which can be further printed or saved as pdf files. 
 
-<!-- TODO nf-core: Include a figure that guides the user through the major workflow steps. Many nf-core
-     workflows use the "tube map" design for that. See https://nf-co.re/docs/contributing/design_guidelines#examples for examples.   -->
-<!-- TODO nf-core: Fill in short bullet-pointed list of the default steps in the pipeline -->1. Read QC ([`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/))2. Present QC for raw reads ([`MultiQC`](http://multiqc.info/))
+
+### Workflow Steps
+1. **Run FastQC**: 
+   - Input: `ch_samplesheet`
+   - Output: `ch_multiqc_files`, `ch_versions`
+
+2. **Collate and Save Software Versions**:
+   - Input: `ch_versions`
+   - Output: `ch_collated_versions`
+
+3. **Align with Minimap2**:
+   - Input: `ch_samplesheet`, `params.reference`
+   - Output: `ch_aligned`
+
+4. **Filter and View BAM Files**:
+   - Input: `ch_aligned`
+   - Output: `ch_filtered`
+
+5. **Run BCFTOOLS Mpileup**:
+   - Input: `ch_filtered`, `params.reference`
+   - Output: `BCFTOOLS_MPILEUP.out.vcf`
+
+6. **Process VCF Files**:
+   - Input: `BCFTOOLS_MPILEUP.out.vcf`
+   - Output: `VCF_PROCESS.out.csv`
+   - Description: Reformats the VCF file to extract allele information and frequencies for each gene position. It removes alleles with frequencies below 10%. This script converts raw VCF data into a more interpretable format for further analysis.
+
+7. **Process Allele Sequences**:
+   - Input: `VCF_PROCESS.out.csv`
+   - Output: `ALLELE_SEQ.out.fasta`
+   - Description: Takes columns from the VCF processing step (reference allele, allele 1, allele 2, allele 3, and allele 4) and constructs nucleotide sequences. Where there is no nucleotide it takes the reference nucleotide. For alleles with frequencies below 10%, it uses the reference allele instead. The resulting sequences are written to a FASTA file, which is prepared for subsequent analysis by HIVDB.
+
+8. **Run SierraPy**:
+   - Input: `ALLELE_SEQ.out.fasta`
+   - Output: `SIERRAPY.out.json`
+   - Description: Analyses the FASTA file using Stanford HIVDB to identify mutation calls. Outputs the results in JSON format. HIVDB web server available at https://hivdb.stanford.edu/hivdb/by-sequences/
+
+9. **Combine JSON and CSV Results**:
+    - Input: `SIERRAPY.out.json`, `VCF_PROCESS.out.csv`
+    - Output: `ch_json_process`
+
+10. **Process JSON Results**:
+    - Input: `ch_json_process`
+    - Output: `JSON_PROCESS.out.results`
+    - Description: Reformats the JSON output from HIVDB. It looks up frequency of a mutation in the following ways:
+      - looks for 3 rows which constitute the codon of a mutation 
+      - looks at the allele column that corresponds to the variant the mutation came from 
+      - double checks that the allele is different than the reference 
+      - takes the frequency of the allele 
+      - transforms it into percentage value
+
+11. **Generate Reports**:
+    - Input: `JSON_PROCESS.out.results`
+    - Output: `REPORTS.out`
+    - Description: Runs R script to combine information and output a html report
+
+12. **Run MultiQC**:
+    - Input: `ch_multiqc_files`, `ch_multiqc_config`, `ch_multiqc_custom_config`, `ch_multiqc_logo`
+    - Output: `MULTIQC.out.report`
+
+### Channels
+- **ch_samplesheet**: Channel containing the input samplesheet, which lists the sequencing data files to be processed. Derived from params.input.
+- **ch_versions**: Channel containing the software versions used in the workflow, ensuring reproducibility.
+- **ch_multiqc_files**: Channel containing files to be aggregated by MultiQC for a comprehensive quality control report.
+- **ch_collated_versions**: Channel containing the collated software versions, compiled into a single file.
+- **ch_aligned**: Channel containing aligned BAM files, which are the result of mapping sequencing reads to the reference genome via minimap2.
+- **ch_filtered**: Channel containing filtered BAM files, which have been processed to remove unmapped reads.
+- **ch_json_process**: Channel containing combined JSON and CSV results, which are used for downstream analysis and report generation.
+
+### Parameters
+- **params.reference**: Path to the reference genome file used for aligning sequencing reads (HXB2).
+- **params.intervals**: Specific genomic intervals to be used for filtering during bcftools mpileup, allowing for targeted analysis.
+- **params.multiqc_config**: Path to a custom configuration file for MultiQC, enabling tailored quality control reports.
+- **params.multiqc_logo**: Path to a custom logo file for MultiQC reports, allowing for branding and customization.
+- **params.multiqc_methods_description**: Custom methods description text for MultiQC reports, providing detailed information about the analysis methods used.
+
 
 ## Usage
 
 > [!NOTE]
-> If you are new to Nextflow and nf-core, please refer to [this page](https://nf-co.re/docs/usage/installation) on how to set-up Nextflow.Make sure to [test your setup](https://nf-co.re/docs/usage/introduction#how-to-run-a-pipeline) with `-profile test` before running the workflow on actual data.
-
-<!-- TODO nf-core: Describe the minimum required steps to execute the pipeline, e.g. how to prepare samplesheets.
-     Explain what rows and columns represent. For instance (please edit as appropriate):
+> If you are new to Nextflow and nf-core, please refer to [this page](https://nf-co.re/docs/usage/installation) on how to set-up Nextflow. Make sure to [test your setup](https://nf-co.re/docs/usage/introduction#how-to-run-a-pipeline) with `-profile test` before running the workflow on actual data.
 
 First, prepare a samplesheet with your input data that looks as follows:
 
@@ -43,22 +108,19 @@ First, prepare a samplesheet with your input data that looks as follows:
 
 ```csv
 sample,fastq_1,fastq_2
-CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
+CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq,AEG588A1_S1_L002_R2_001.fastq
 ```
-
-Each row represents a fastq file (single-end) or a pair of fastq files (paired end).
-
--->
+Each row represents a pair of fastq files (paired-end sequencing data). The input files should be in fastq or fastq.gz format.
 
 Now, you can run the pipeline using:
 
-<!-- TODO nf-core: update the following command to include all required parameters for a minimal example -->
-
 ```bash
 nextflow run nf-core/mphivseq \
-   -profile <docker/singularity/.../institute> \
-   --input samplesheet.csv \
-   --outdir <OUTDIR>
+  -profile <docker/singularity/.../institute> \
+  --input samplesheet.csv \
+  --reference <path_to_reference_genome>.fasta \
+  --intervals <path_to_intervals_file>.bed \
+  --outdir <OUTDIR>
 ```
 
 > [!WARNING]
@@ -68,13 +130,54 @@ For more details and further functionality, please refer to the [usage documenta
 
 ## Pipeline output
 
-To see the results of an example test run with a full size dataset refer to the [results](https://nf-co.re/mphivseq/results) tab on the nf-core website pipeline page.
-For more details about the output files and reports, please refer to the
-[output documentation](https://nf-co.re/mphivseq/output).
+The pipeline generates several output files, with the most important being the HTML report. This report provides a detailed summary of the analysis results, including the presence of majority and minority variants of mutations as defined by the HIVdb Stanford database.
+
+### Key Outputs
+
+- **HTML Report**: The main output of the pipeline, providing a comprehensive summary of the analysis results. This report includes:
+  - Sample Information (runID, timestamps, sampleID)
+  - HIV Subtype 
+  - Protease mutations (Major, Accessory, Other)
+  - Reverse Transcriptase mutations (Major, Accessory, Other)
+  - Integrase mutations (Major, Accessory, Other)
+  - Inhibitor susceptibility and drug effectivness
+  - Additional information on inhibitor susceptibility scoring
+  - **Location**: `report/`
+
+- **MultiQC Report**: A summary report generated by MultiQC, aggregating quality control metrics from various steps in the pipeline.
+  - **Location**: `multiqc/`
+
+- **Aligned BAM Files**: Files containing sequencing reads aligned to the reference genome.
+  - **Location**: `minimap2/`
+
+- **Filtered BAM Files**: Aligned BAM files that have been processed to remove unwanted reads.
+  - **Location**: `samtools/`
+
+- **Variant Call Files (VCF)**: Files containing the called variants from the sequencing data.
+  - **Location**: `bcftools/`
+
+- **Allele FASTA Files**: FASTA files containing 4 artificial alleles for each sample.
+  - **Location**: `allele/`
+
+- **FastQC Reports**: Quality control reports generated by FastQC for the input sequencing data.
+  - **Location**: `fastqc/`
+
+- **JSON Files**: Folder containing two CSV files for each sample:
+  - One with scores for each drug
+  - One with mutations for each allele and their frequencies
+  - **Location**: `json/`
+
+- **SierraPy JSON Report**: A JSON report generated by Sierra after running it against the HIVdb database
+  - **Location**: `sierrapy/`
+
+- **Software Versions**: A YAML file listing the software versions used in the workflow, ensuring reproducibility.
+  - **Location**: `pipeline_info/`
+
+To see the results of an example test run with a full-size dataset, refer to the [results](https://nf-co.re/mphivseq/results) tab on the nf-core website pipeline page. For more details about the output files and reports, please refer to the [output documentation](https://nf-co.re/mphivseq/output).
 
 ## Credits
 
-nf-core/mphivseq was originally written by Magdalena Dabrowska.
+nf-core/mphivseq was originally written by Magdalena Dabrowska at the University of Sheffield.
 
 We thank the following people for their extensive assistance in the development of this pipeline:
 
