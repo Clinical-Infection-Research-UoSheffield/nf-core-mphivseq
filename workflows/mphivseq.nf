@@ -9,6 +9,11 @@ include { BCFTOOLS_MPILEUP       } from '../modules/local/bcftools/mpileup/main'
 include { MINIMAP2_ALIGN         } from '../modules/nf-core/minimap2/align/main'
 include { SAMTOOLS_INDEX         } from '../modules/nf-core/samtools/index/main'
 include { SAMTOOLS_VIEW          } from '../modules/nf-core/samtools/view/main'
+include { VCF_PROCESS            } from '../modules/local/vcfprocess/main'
+include { ALLELE_SEQ             } from '../modules/local/alleleseq/main'
+include { SIERRAPY               } from '../modules/local/sierrapy/main'
+include { JSON_PROCESS           } from '../modules/local/jsonprocess/main'
+include { REPORTS                } from '../modules/local/reports/main'
 include { paramsSummaryMap       } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc   } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { softwareVersionsToYAML } from '../subworkflows/nf-core/utils_nfcore_pipeline'
@@ -86,7 +91,32 @@ workflow MPHIVSEQ {
         false
     )
 
+    VCF_PROCESS (
+        BCFTOOLS_MPILEUP.out.vcf
+    )
 
+    ALLELE_SEQ (
+        VCF_PROCESS.out.csv
+    )
+
+    SIERRAPY (
+        ALLELE_SEQ.out.fasta
+    )
+
+    // Combine VCF_PROCESS.out.csv and SIERRAPY.out.json by meta into one tuple
+    SIERRAPY.out.json.join(VCF_PROCESS.out.csv)
+        .map { meta, sierra_json, vcf_csv -> 
+            tuple(meta, sierra_json, vcf_csv)
+        }
+        .set { ch_json_process }
+
+    JSON_PROCESS (
+        ch_json_process
+    )
+
+    REPORTS (
+        JSON_PROCESS.out.results
+    )
 
     //
     // MODULE: MultiQC
